@@ -248,6 +248,30 @@
     (is (= "Jackson Howard" (:title (second (rest (rest (:deck (get-corp))))))))
     (is (= "Global Food Initiative" (:title (second (rest (rest (rest (:deck (get-corp)))))))))))
 
+(deftest cold-read
+  ;; Make a run, and place 4 on this card, which you may use only during this run.
+  ;; When this run ends, trash 1 program (cannot be prevented) used during this run.
+  (do-game
+    (new-game (default-corp [(qty "Blacklist" 3)])
+              (default-runner [(qty "Imp" 1) (qty "Cold Read" 2)]))
+    (play-from-hand state :corp "Blacklist" "New remote")
+    (take-credits state :corp)
+    (play-from-hand state :runner "Imp")
+    (let [bl (get-content state :remote1 0)]
+      (play-from-hand state :runner "Cold Read")
+      (prompt-choice :runner "HQ")
+      (is (= 4 (:rec-counter (find-card "Cold Read" (get-in @state [:runner :play-area])))) "Cold Read has 4 counters")
+      (run-successful state)
+      (card-ability state :runner (get-program state 0) 0)
+      (prompt-select :runner (get-program state 0))
+      (is (= 2 (count (:discard (get-runner)))) "Imp and Cold Read in discard")
+      ; Cold Read works when Blacklist rezzed - #2378
+      (core/rez state :corp bl)
+      (play-from-hand state :runner "Cold Read")
+      (prompt-choice :runner "HQ")
+      (is (= 4 (:rec-counter (find-card "Cold Read" (get-in @state [:runner :play-area])))) "Cold Read has 4 counters")
+      (run-successful state))))
+
 (deftest corporate-scandal
   ;; Corporate Scandal - Corp has 1 additional bad pub even with 0
   (do-game
@@ -456,6 +480,24 @@
     (play-from-hand state :runner "Employee Strike")
     (take-credits state :runner)
     (is (not (:corp-phase-12 @state)) "Employee Strike suppressed Blue Sun step 1.2")))
+
+(deftest encore
+  ;; Encore - Run all 3 central servers successfully to take another turn.  Remove Encore from game.
+  (do-game
+    (new-game (default-corp [(qty "Hedge Fund" 1)])
+              (default-runner [(qty "Encore" 1)]))
+    (play-from-hand state :corp "Hedge Fund")
+    (take-credits state :corp)
+    (run-empty-server state "Archives")
+    (run-empty-server state "R&D")
+    (run-empty-server state "HQ")
+    (play-from-hand state :runner "Encore")
+    (is (= 1 (count (:rfg (get-runner)))) "Encore removed from game")
+    (take-credits state :runner)
+    (take-credits state :runner)
+    ; only get one extra turn
+    (take-credits state :runner)
+    (is (= 9 (:credit (get-runner))))))
 
 (deftest eureka!
   ;; Eureka! - Install the program but trash the event
