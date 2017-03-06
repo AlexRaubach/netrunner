@@ -850,6 +850,23 @@
     (is (= 2 (:click (get-runner))) "Spent 2 clicks")
     (is (= 1 (:tag (get-runner))) "Lost 2 tags")))
 
+(deftest mad-dash
+  ;; Mad Dash - Make a run. Move to score pile as 1 point if steal agenda.  Take 1 meat if not
+  (do-game
+    (new-game (default-corp [(qty "Project Atlas" 1)])
+              (default-runner [(qty "Mad Dash" 3)]))
+    (take-credits state :corp)
+    (play-from-hand state :runner "Mad Dash")
+    (prompt-choice :runner "Archives")
+    (run-successful state)
+    (is (= 2 (count (:discard (get-runner)))) "Took a meat damage")
+    (play-from-hand state :runner "Mad Dash")
+    (prompt-choice :runner "HQ")
+    (run-successful state)
+    (prompt-choice :runner "Steal")
+    (is (= 2 (count (:scored (get-runner)))) "Mad Dash moved to score area")
+    (is (= 3 (:agenda-point (get-runner))) "Mad Dash scored for 1 agenda point")))
+
 (deftest making-an-entrance
   ;; Making an Entrance - Full test
   (do-game
@@ -1044,6 +1061,38 @@
     (prompt-choice :runner 3)
     (is (= 6 (:credit (get-runner))) "Corp guessed incorrectly")))
 
+(deftest pushing-the-envelope
+  ;; Run. Add 2 strength to each installer breaker.
+  (do-game
+    (new-game (default-corp)
+              (default-runner [(qty "Pushing the Envelope" 3) (qty "Corroder" 2) (qty "Atman" 1)]))
+    (take-credits state :corp)
+    (core/gain state :runner :credit 20)
+    (core/gain state :runner :click 10)
+    (core/draw state :runner)
+    (play-from-hand state :runner "Corroder")
+    (play-from-hand state :runner "Atman")
+    (prompt-choice :runner 0)
+    (let [atman (get-in @state [:runner :rig :program 1])
+          corr (get-in @state [:runner :rig :program 0])]
+      (is (= 0 (:current-strength (refresh atman))) "Atman 0 current strength")
+      (is (= 2 (:current-strength (refresh corr))) "Corroder 2 current strength")
+      (play-from-hand state :runner "Pushing the Envelope")
+      (prompt-choice :runner "Archives")
+      ; 3 cards in hand - no boost
+      (is (= 0 (:current-strength (refresh atman))) "Atman 0 current strength")
+      (is (= 2 (:current-strength (refresh corr))) "Corroder 2 current strength")
+      (run-successful state)
+      (play-from-hand state :runner "Pushing the Envelope")
+      (prompt-choice :runner "Archives")
+      (run-continue state)
+      ; 2 cards in hand - boost
+      (is (= 2 (:current-strength (refresh atman))) "Atman 2 current strength")
+      (is (= 4 (:current-strength (refresh corr))) "Corroder 2 current strength")
+      (run-successful state)
+      (is (= 0 (:current-strength (refresh atman))) "Atman 0 current strength")
+      (is (= 2 (:current-strength (refresh corr))) "Corroder 2 current strength"))))
+
 (deftest queens-gambit
   ;; Check that Queen's Gambit prevents access of card #1542
   (do-game
@@ -1078,6 +1127,7 @@
                       (let [kate-choice (some #(when (= name (:title %)) %) (:choices (prompt-map :runner)))]
                         (core/resolve-prompt state :runner {:card kate-choice})))
 
+      ayla "Ayla \"Bios\" Rahim: Simulant Specialist"
       kate "Kate \"Mac\" McCaffrey: Digital Tinker"
       kit "Rielle \"Kit\" Peddler: Transhuman"
       professor "The Professor: Keeper of Knowledge"
@@ -1092,7 +1142,7 @@
       (new-game (default-corp) (default-runner ["Magnum Opus" "Rebirth"]) {:start-as :runner})
 
       (play-from-hand state :runner "Rebirth")
-      (is (= (first (prompt-titles :runner)) chaos) "List is sorted")
+      (is (= (first (prompt-titles :runner)) ayla) "List is sorted")
       (is (every?   #(some #{%} (prompt-titles :runner))
                     [kate kit]))
       (is (not-any? #(some #{%} (prompt-titles :runner))

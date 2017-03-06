@@ -374,6 +374,16 @@
    "Executive Wiretaps"
    {:msg (msg "reveal cards in HQ: " (join ", " (map :title (:hand corp))))}
 
+   "Exploit"
+   {:req (req (and (some #{:hq} (:successful-run runner-reg))
+                   (some #{:rd} (:successful-run runner-reg))
+                   (some #{:archives} (:successful-run runner-reg))))
+    :prompt "Choose up to 3 pieces of ICE to derez"
+    :choices {:max 3 :req #(and (rezzed? %) (ice? %))}
+    :msg (msg "derez " (join ", " (map :title targets)))
+    :effect (req (doseq [c targets]
+                   (derez state side c)))}
+
    "Exploratory Romp"
    {:prompt "Choose a server" :choices (req runnable-servers)
     :effect (effect (run target
@@ -762,6 +772,23 @@
    {:msg "gain 9 [Credits]"
     :effect (effect (gain :credit 9))}
 
+   "Mad Dash"
+   {:prompt "Choose a server"
+    :choices (req runnable-servers)
+    :delayed-completion true
+    :effect (effect (run target nil card)
+                    (register-events (:events (card-def card)) (assoc card :zone '(:discard))))
+    :events {:agenda-stolen {:silent (req true)
+                             :effect (effect (update! (assoc card :steal true)))}
+             :run-ends {:effect (req (if (:steal card)
+                                       (do (as-agenda state :runner (get-card state card) 1)
+                                           (system-msg state :runner
+                                                       (str "adds Mad Dash to their score area as an agenda worth 1 agenda point")))
+                                       (do (system-msg state :runner
+                                                       (str "suffers 1 meat damage from Mad Dash"))
+                                                       (damage state side eid :meat 1 {:card card})))
+                                     (unregister-events state side card))}}}
+
    "Making an Entrance"
    (letfn [(entrance-trash [cards]
              {:prompt "Choose a card to trash"
@@ -952,6 +979,19 @@
                                                         (system-msg state :runner (str "gains " (* 2 target) " [Credits]"))
                                                         (gain state :runner :credit (* 2 target))))} card nil)))}
                       card nil))}
+
+   "Pushing the Envelope"
+   (letfn [(hsize [s] (count (get-in s [:runner :hand])))]
+   {:msg (msg (if (<= (hsize @state) 2)
+           "make a run, and adds +2 strength to installed icebreakers"
+           "make a run"))
+    :prompt "Choose a server"
+    :choices (req runnable-servers)
+    :delayed-completion true
+    :effect (req (when (<= (hsize @state) 2)
+                   (let [breakers (filter #(has-subtype? % "Icebreaker") (all-installed state :runner))]
+                     (doseq [t breakers] (pump state side t 2 :all-run))))
+                 (game.core/run state side (make-eid state) target))})
 
    "Quality Time"
    {:msg "draw 5 cards" :effect (effect (draw 5))}
@@ -1172,6 +1212,20 @@
     :prompt "Choose a server"
     :choices (req runnable-servers)
     :effect (effect (run target nil card))}
+
+   "Spot the Prey"
+   {:prompt "Select 1 non-ICE card to expose"
+    :msg "expose 1 card and make a run"
+    :choices {:req #(and (installed? %) (not (ice? %)) (= (:side %) "Corp"))}
+    :delayed-completion true
+    :effect (req (when-completed (expose state side target)
+                                 (continue-ability
+                                   state side
+                                   {:prompt "Choose a server"
+                                    :choices (req runnable-servers)
+                                    :delayed-completion true
+                                    :effect (effect (game.core/run eid target))}
+                                   card nil)))}
 
    "Stimhack"
    {:prompt "Choose a server" :choices (req runnable-servers)

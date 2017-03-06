@@ -659,6 +659,61 @@
       (is (= 7 (count (:hand (get-corp)))) "Drew 2 cards")
       (is (= 1 (:click (get-corp)))))))
 
+(deftest jeeves-model-bioroids
+  (do-game
+    (new-game (default-corp [(qty "Jeeves Model Bioroids" 1) (qty "TGTBT" 1)
+                             (qty "Melange Mining Corp." 2)])
+              (default-runner [(qty "Ghost Runner" 3)]))
+    (play-from-hand state :corp "Jeeves Model Bioroids" "New remote")
+    (core/rez state :corp (get-content state :remote1 0))
+    (take-credits state :corp)
+    (play-from-hand state :runner "Ghost Runner")
+    (play-from-hand state :runner "Ghost Runner")
+    (play-from-hand state :runner "Ghost Runner")
+    (take-credits state :runner)
+    ; install 3 things
+    (play-from-hand state :corp "TGTBT" "New remote")
+    (play-from-hand state :corp "Melange Mining Corp." "New remote")
+    (play-from-hand state :corp "Melange Mining Corp." "New remote")
+    (is (= 1 (:click (get-corp))))
+    (take-credits state :corp)
+    (take-credits state :runner)
+    ;;click for credits
+    (take-credits state :corp 3)
+    (is (= 1 (:click (get-corp))))
+    (take-credits state :corp)
+    (take-credits state :runner)
+    ;;click to purge
+    (core/do-purge state :corp 3)
+    (is (= 1 (:click (get-corp))))
+    (take-credits state :corp)
+    (take-credits state :runner)
+    ;;click to advance
+    (core/advance state :corp (get-content state :remote2 0))
+    (core/advance state :corp (get-content state :remote2 0))
+    (core/advance state :corp (get-content state :remote2 0))
+    (is (= 1 (:click (get-corp))))
+    (take-credits state :corp)
+    (take-credits state :runner)
+    ;; use 3 clicks on card ability - Melange
+    (core/rez state :corp (get-content state :remote3 0))
+    (card-ability state :corp (get-content state :remote3 0) 0)
+    (is (= 1 (:click (get-corp))))
+    (take-credits state :corp)
+    (take-credits state :runner)
+    ;; trash 3 resources
+    (core/gain state :runner :tag 1)
+    (core/trash-resource state :corp nil)
+    (prompt-select :corp (get-resource state 0))
+    (is (= 1 (count (:discard (get-runner)))))
+    (core/trash-resource state :corp nil)
+    (prompt-select :corp (get-resource state 0))
+    (is (= 2 (count (:discard (get-runner)))))
+    (core/trash-resource state :corp nil)
+    (prompt-select :corp (get-resource state 0))
+    (is (= 3 (count (:discard (get-runner)))))
+    (is (= 1 (:click (get-corp))))))
+
 (deftest kala-ghoda
   ; Kala Ghoda Real TV
   (do-game
@@ -677,8 +732,7 @@
       (is (= 1 (count (:discard (get-corp)))))
       (is (= 1 (count (:discard (get-runner)))))
       (is (last-log-contains? state "Sure Gamble")
-          "Kala Ghoda did log trashed card names")
-      )))
+          "Kala Ghoda did log trashed card names"))))
 
 (deftest launch-campaign
   (do-game
@@ -759,6 +813,38 @@
     (run-empty-server state :archives)
     (prompt-choice :runner "Add News Team to score area")
     (is (= 2 (count (:scored (get-runner)))) "News Team added to Runner score area with Blacklist rez")))
+
+(deftest net-analytics
+  ;; Draw a card when runner avoids or removes 1 or more tags
+  (do-game
+    (new-game (default-corp [(qty "Ghost Branch" 3) (qty "Net Analytics" 3)])
+              (default-runner [(qty "New Angeles City Hall" 3)]))
+    (starting-hand state :corp ["Net Analytics" "Ghost Branch"])
+    (play-from-hand state :corp "Ghost Branch" "New remote")
+    (play-from-hand state :corp "Net Analytics" "New remote")
+    (take-credits state :corp)
+    (play-from-hand state :runner "New Angeles City Hall")
+    (take-credits state :runner)
+    (let [gb (get-content state :remote1 0)
+          net (get-content state :remote2 0)
+          nach (get-in @state [:runner :rig :resource 0])]
+      (core/rez state :corp (refresh net))
+      (core/advance state :corp {:card (refresh gb)})
+      (is (= 1 (get-in (refresh gb) [:advance-counter])))
+      (take-credits state :corp)
+      (is (= 1 (count (:hand (get-corp)))) "Corp hand size is 1 before run")
+      (run-empty-server state "Server 1")
+      (prompt-choice :corp "Yes") ; choose to do the optional ability
+      (card-ability state :runner nach 0)
+      (prompt-choice :runner "Done")
+      (prompt-choice :runner "No")
+      (is (empty? (:prompt (get-runner))) "Runner waiting prompt is cleared")
+      (is (= 0 (:tag (get-runner))) "Avoided 1 Ghost Branch tag")
+      (is (= 2 (count (:hand (get-corp)))) "Corp draw from NA")
+      ; tag removal
+      (core/tag-runner state :runner 1)
+      (core/remove-tag state :runner 1)
+      (is (= 3 (count (:hand (get-corp)))) "Corp draw from NA"))))
 
 (deftest net-police
   ;; Net Police - Recurring credits equal to Runner's link

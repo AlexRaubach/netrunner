@@ -95,8 +95,8 @@
                               (do (show-wait-prompt state :corp "Runner to decide whether or not to prevent Alexa Belsky")
                                   (resolve-ability
                                     state side
-                                    {:prompt "How many credits?"
-                                     :choices :credit :player :runner
+                                    {:prompt "Prevent Alexa Belsky from shuffling back in 1 card for every 2 [Credits] spent. How many credits?"
+                                     :choices :credit :player :runner :priority 2
                                      :msg (msg "shuffle " (- (count (:hand corp)) (quot target 2)) " card"
                                                (when-not (= 1 (- (count (:hand corp)) (quot target 2))) "s")
                                                " in HQ into R&D")
@@ -104,7 +104,8 @@
                                                     (do (doseq [c (take (- (count (:hand corp)) (quot target 2))
                                                                         (shuffle (:hand corp)))]
                                                           (move state :corp c :deck))
-                                                        (shuffle! state :corp :deck)
+                                                        (when (pos? (- (count (:hand corp)) (quot target 2)))
+                                                          (shuffle! state :corp :deck))
                                                         (system-msg state :runner
                                                                     (str "pays " target " [Credits] to prevent "
                                                                          (quot target 2) " random card"
@@ -183,16 +184,6 @@
     :abilities [{:label "Trace 3 - Avoid taking a bad publicity"
                  :trace {:base 3 :msg "avoid taking a bad publicity"
                          :effect (effect (lose :bad-publicity 1))}}]}
-
-   "Bryan Stinson"
-   {:abilities [{:cost [:click 1]
-                 :req (req (and (< (:credit runner) 6)
-                                (< 0 (count (filter #(is-type? % "Operation") (:discard corp))))))
-                 :label "Play an operation from Archives ignoring all costs and remove it from the game"
-                 :prompt "Choose an operation to play"
-                 :msg (msg "play " (:title target) " from Archives ignoring all costs and remove it from the game")
-                 :choices (req (cancellable (filter #(is-type? % "Operation") (:discard corp)) :sorted))
-                 :effect (effect (play-instant nil target {:ignore-cost true}) (move target :rfg))}]}
 
    "Capital Investors"
    {:abilities [{:cost [:click 1] :effect (effect (gain :credit 2)) :msg "gain 2 [Credits]"}]}
@@ -580,10 +571,22 @@
                  :effect (effect (rfg-and-shuffle-rd-effect card 3))}]}
 
    "Jeeves Model Bioroids"
-   {:implementation "Trigger is manual"
-    :abilities [{:label "Gain [Click]"
-                 :msg "gain [Click]" :once :per-turn
-                 :effect (effect (gain :click 1))}]}
+    (let [jeeves (effect (gain :click 1))
+          ability {:label "Gain [Click]"
+                   :msg "gain [Click]"
+                   :once :per-turn
+                   :effect jeeves}
+          cleanup (effect (update! (dissoc card :seen-this-turn)))]
+
+    {:abilities  [ability]
+     :leave-play {:effect cleanup}
+     :trash-effect {:effect cleanup}
+     :events {
+             :corp-spent-click
+              {:effect (req (update! state side (update-in card [:seen-this-turn target] (fnil + 0) (second targets)))
+                            (when (>= (get-in (get-card state card) [:seen-this-turn target]) 3)
+                                 (resolve-ability state side ability card nil)))}
+              :corp-turn-ends {:effect cleanup}}})
 
    "Kala Ghoda Real TV"
    {:flags {:corp-phase-12 (req true)}
@@ -765,6 +768,13 @@
                    :msg (msg "gain " (* 2 (get-in card [:counter :power])) " [Credits]")
                    :effect (effect (gain :credit (* 2 (get-in card [:counter :power])))
                                    (trash card))}]})
+
+   "Net Analytics"
+   (let [ability {:req (req (not (empty? (filter #(some #{:tag} %) targets))))
+                  :msg (msg "to draw a card")
+                  :effect (effect (draw :corp))}]
+   {:events {:runner-loss ability
+             :runner-prevent ability}})
 
    "Net Police"
    {:recurring (effect (set-prop card :rec-counter (:link runner)))
@@ -1142,6 +1152,13 @@
                                   :effect (req (when (not this-server)
                                                  (gain state :corp :credit 2)))}}}
 
+   "Synth DNA Modification"
+   {:implementation "Manual fire once subroutine is broken"
+    :abilities [{:msg "do 1 net damage"
+                 :label "Do 1 net damage after AP subroutine broken"
+                 :once :per-turn
+                 :effect (effect (damage eid :net 1 {:card card}))}]}
+
    "Team Sponsorship"
    {:events {:agenda-scored {:label "Install a card from Archives or HQ"
                              :prompt "Choose a card from Archives or HQ to install"
@@ -1149,6 +1166,7 @@
                              :interactive (req true)
                              :delayed-completion true
                              :choices {:req #(and (not (is-type? % "Operation"))
+                                                  (= (:side %) "Corp")
                                                   (#{[:hand] [:discard]} (:zone %)))}
                              :msg (msg (corp-install-msg target))
                              :effect (effect (corp-install eid target nil {:no-install-cost true}))}}}
