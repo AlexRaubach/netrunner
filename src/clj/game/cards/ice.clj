@@ -531,9 +531,9 @@
                    :effect (effect (end-run))}]}
 
    "DNA Tracker"
-   {:abilities [{:msg "do 1 net damage and make the Runner lose 2 [Credits]"
-                 :effect (req (when-completed (damage state side :net 1 {:card card})
-                                              (lose state :runner :credit 2)))}]}
+   {:subroutines [{:msg "do 1 net damage and make the Runner lose 2 [Credits]"
+                   :effect (req (when-completed (damage state side :net 1 {:card card})
+                                                (lose state :runner :credit 2)))}]}
 
    "Dracō"
    {:prompt "How many power counters?"
@@ -653,6 +653,12 @@
                                                       :cancel-effect (effect (damage eid :meat 2 {:unpreventable true :card card})
                                                                              (end-run))}
                                                      card nil))})]}
+
+   "Free Lunch"
+   {:abilities [(power-counter-ability {:label "Runner loses 1 [Credits]"
+                                        :msg "make the Runner lose 1 [Credits]"
+                                        :effect (effect (lose :runner :credit 1))})]
+    :subroutines [add-power-counter]}
 
    "Galahad"
    (grail-ice end-the-run)
@@ -810,6 +816,14 @@
                                                                  (tag-runner state :runner eid 1)))})]
     :runner-abilities [(runner-break [:click 2] 2)]}
 
+   "Inazuma"
+   {:abilities [{:msg "prevent the Runner from breaking subroutines on the next piece of ICE they encounter this run"}
+                {:msg "prevent the Runner from jacking out until after the next piece of ICE"
+                 :effect (effect (register-events
+                                   {:pass-ice {:effect (req (swap! state update-in [:run] dissoc :prevent-jack-out)
+                                                            (unregister-events state side card))}} card)
+                                 (prevent-jack-out))}]}
+
    "Information Overload"
    {:implementation "Encounter effect is manual"
     :abilities [{:label "Gain subroutines"
@@ -819,12 +833,12 @@
 
    "IP Block"
    {:abilities [(assoc give-tag :req (req (not-empty (filter #(has-subtype? % "AI") (all-installed state :runner))))
-                                :label "Give the Runner 1 tag if there is an installed AI")
-                (tag-trace 3)
-                {:label "End the run if the Runner is tagged"
-                 :req (req tagged)
-                 :msg "end the run"
-                 :effect (effect (end-run))}]}
+                                :label "Give the Runner 1 tag if there is an installed AI")]
+    :subroutines [(tag-trace 3)
+                  {:label "End the run if the Runner is tagged"
+                   :req (req tagged)
+                   :msg "end the run"
+                   :effect (effect (end-run))}]}
 
    "IQ"
    {:effect (req (add-watch state (keyword (str "iq" (:cid card)))
@@ -1041,6 +1055,20 @@
                   trash-program]
     :runner-abilities [(runner-break [:credit 2] 1)]}
 
+   "Nerine 2.0"
+   {:subroutines [{:label "Do 1 brain damage and Corp may draw 1 card"
+                   :delayed-completion true
+                   :msg "do 1 brain damage"
+                   :effect (req (when-completed (damage state :runner :brain 1 {:card card})
+                                                (resolve-ability state side
+                                                  {:optional
+                                                   {:prompt "Draw 1 card?"
+                                                    :yes-ability {:msg "draw 1 card"
+                                                                  :effect (effect (draw))}
+                                                    :no-ability {:effect (req (effect-completed state side eid))}}}
+                                                 card nil)))}]
+    :runner-abilities [(runner-break [:click 2] 2)]}
+
    "Neural Katana"
    {:subroutines [(do-net-damage 3)]}
 
@@ -1178,10 +1206,22 @@
                            :delayed-completion true
                            :effect (effect (tag-runner :runner eid 1))
                            :msg "give the Runner 1 tag"}}]}
-                           
-    "Self-Adapting Code Wall"
-    {:subroutines [end-the-run]
-     :flags {:cannot-lower-strength true}}
+
+   "Seidr Adaptive Barrier"
+   {:effect (req (let [srv (second (:zone card))]
+                   (add-watch state (keyword (str "sab" (:cid card)))
+                              (fn [k ref old new]
+                                (let [ices (count (get-in new [:corp :servers srv :ices]))]
+                                  (when (not= (count (get-in old [:corp :servers srv :ices])) ices)
+                                    (update! ref side (assoc (get-card ref card) :strength-bonus ices))
+                                    (update-ice-strength ref side (get-card ref card))))))))
+    :strength-bonus (req (count (:ices (card->server state card))))
+    :leave-play (req (remove-watch state (keyword (str "sab" (:cid card)))))
+    :subroutines [end-the-run]}
+
+   "Self-Adapting Code Wall"
+   {:subroutines [end-the-run]
+    :flags {:cannot-lower-strength true}}
 
    "Sensei"
    {:subroutines [{:label "Give each other ICE encountered \"End the run\" for the remainder of the run"
@@ -1465,6 +1505,15 @@
    "Wall of Thorns"
    {:subroutines [end-the-run
                   (do-net-damage 2)]}
+
+   "Watchtower"
+   {:subroutines [{:label "Search R&D and add 1 card to HQ"
+                   :prompt "Choose a card to add to HQ"
+                   :msg "add a card from R&D to HQ"
+                   :choices (req (cancellable (:deck corp) :sorted))
+                   :cancel-effect (effect (system-msg "cancels the effect of Watchtower"))
+                   :effect (effect (shuffle! :deck)
+                                   (move target :hand))}]}
 
    "Wendigo"
    (implementation-note

@@ -64,6 +64,23 @@
                                        #(assoc % :position (count (get-in corp (conj dest :ices)))
                                                  :server (rest dest)))))}]}
 
+   "Alice Merchant: Clan Agitator"
+   {:events {:successful-run
+             {:delayed-completion true
+              :interactive (req true)
+              :req (req (and (= target :archives)
+                             (first-successful-run-on-server? state :archives)
+                             (not-empty (:hand corp))))
+              :effect (effect (show-wait-prompt :runner "Corp to trash 1 card from HQ")
+                              (continue-ability
+                                {:prompt "Choose a card in HQ to discard"
+                                 :player :corp
+                                 :choices (req (:hand corp))
+                                 :msg "force the Corp to trash 1 card from HQ"
+                                 :effect (effect (trash :corp target)
+                                                 (clear-wait-prompt :runner))}
+                               card nil))}}}
+
    "Andromeda: Dispossessed Ristie"
    {:events {:pre-start-game {:req (req (= side :runner))
                               :effect (effect (draw 4 {:suppress-event true}))}}
@@ -247,9 +264,11 @@
    "Haas-Bioroid: Architects of Tomorrow"
    {:events {:pass-ice
              {:delayed-completion true
+              :once :per-turn
               :req (req (and (rezzed? target)
                              (has-subtype? target "Bioroid")
-                             (first-event? state :corp :pass-ice)))
+                             (empty? (filter #(and (rezzed? %) (has-subtype? % "Bioroid"))
+                                             (turn-events state side :pass-ice)))))
               :effect (effect (show-wait-prompt :runner "Corp to use Haas-Bioroid: Architects of Tomorrow")
                               (continue-ability
                                 {:prompt "Choose a bioroid to rez" :player :corp
@@ -351,6 +370,7 @@
                                {:prompt "Choose a card to place advancement tokens on with Jemison Astronautics: Sacrifice. Audacity. Success."
                                 :choices {:req #(and (installed? %) (= (:side %) "Corp"))}
                                 :msg (msg "place " p " advancement tokens on " (card-str state target))
+                                :cancel-effect (effect (clear-wait-prompt :runner))
                                 :effect (effect (add-prop :corp target :advance-counter p {:placed true})
                                                 (clear-wait-prompt :runner))}
                               card nil)))}}}
@@ -524,13 +544,16 @@
                                   (swap! state update-in [:bonus] dissoc :cost))))}]}
 
    "NBN: Controlling the Message"
-   {:events {:runner-trash
+   (let [cleanup (effect (update! :corp (dissoc card :saw-trash)))]
+   {:events {:corp-turn-ends {:effect cleanup}
+             :runner-turn-ends {:effect cleanup}
+             :runner-trash
              {:delayed-completion true
-              :req (req (and (let [trashes (flatten (turn-events state side :runner-trash))]
-                               (empty? (filter #(card-is? % :side :corp) trashes)))
+              :req (req (and (not (:saw-trash card))
                              (card-is? target :side :corp)
                              (installed? target)))
               :effect (req (show-wait-prompt state :runner "Corp to use NBN: Controlling the Message")
+                           (update! state :corp (assoc card :saw-trash true))
                            (continue-ability
                              state :corp
                              {:optional
@@ -542,7 +565,7 @@
                                                                      (clear-wait-prompt :runner))
                                                      :unsuccessful {:effect (effect (clear-wait-prompt :runner))}}}
                                :no-ability {:effect (effect (clear-wait-prompt :runner))}}}
-                             card nil))}}}
+                             card nil))}}})
 
    "NBN: Making News"
    {:recurring 2}

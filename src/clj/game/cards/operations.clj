@@ -585,6 +585,14 @@
                                    (gain state side :credit (* (count targets) 3)))}
                     card nil)))}
 
+   "Load Testing"
+   {:msg "make the Runner lose [Click] when their next turn begins"
+    :effect (effect (register-events (:events (card-def card))
+                                     (assoc card :zone '(:discard))))
+    :events {:runner-turn-begins {:msg "make the Runner lose [Click]"
+                                  :effect (effect (lose :runner :click 1)
+                                                  (unregister-events card))}}}
+
    "Localized Product Line"
    {:prompt "Choose a card"
     :choices (req (cancellable (:deck corp) :sorted))
@@ -788,6 +796,28 @@
                                       :effect (effect (add-prop target :advance-counter c {:placed true}))}
                                      card nil)))}
 
+    "Psychokinesis"
+    (letfn [(choose-card [cards]
+             {:prompt "Select an agenda, asset, or upgrade to install"
+              :choices (cons "None" cards)
+              :delayed-completion true
+              :effect (req (if-not (or (= target "None") (ice? target) (is-type? target "Operation"))
+                             (continue-ability state side (install-card target) card nil)
+                             (system-msg state side "does not install an asset, agenda, or upgrade"))
+                           (effect-completed state side eid card)
+                           (clear-wait-prompt state :runner))})
+            (install-card [chosen]
+             {:prompt "Select a remote server"
+              :choices (req (conj (vec (get-remote-names @state)) "New remote"))
+              :delayed-completion true
+              :effect (effect (clear-wait-prompt :runner)
+                              (corp-install (move state side chosen :play-area) target))})]
+     {:msg "look at the top 5 cards of R&D"
+      :delayed-completion true
+      :effect (req (show-wait-prompt state :runner "Corp to look at the top cards of R&D")
+                   (let [from (take 5 (:deck corp))]
+                     (continue-ability state side (choose-card from) card nil)))})
+
    "Punitive Counterstrike"
    {:trace {:base 5 :msg "do meat damage equal to the number of agenda points stolen last turn"
             :effect (effect (damage eid :meat (or (get-in runner [:register :stole-agenda]) 0) {:card card})
@@ -894,6 +924,16 @@
                          (= (:side %) "Corp"))}
     :msg "shuffle a card from HQ into R&D"
     :effect (final-effect (move target :deck) (shuffle! :deck))}
+
+   "Sacrifice"
+   {:req (req (pos? (:bad-publicity corp)))
+    :delayed-completion true
+    :additional-cost [:forfeit]
+    :effect (req (let [bplost (min (:agendapoints (last (:rfg corp))) (:bad-publicity corp))]
+                   (lose state side :bad-publicity bplost)
+                   (gain state side :credit bplost)
+                   (system-msg state side (str "uses Sacrifice to lose " bplost " bad publicity and gain " bplost " [Credits]")))
+                 (effect-completed state side eid))}
 
    "Salems Hospitality"
    {:prompt "Name a Runner card"

@@ -752,7 +752,7 @@
   (om/component
    (sab/html
     [:div.blue-shade.discard
-     (drop-area :runner "Heap" {:on-click #(-> (om/get-node owner "popup") js/$ .fadeIn)})
+     (drop-area :runner "Heap" {:on-click #(-> (om/get-node owner "popup") js/$ .fadeToggle)})
      (when-not (empty? discard)
        (om/build card-view (last discard)))
      (om/build label discard {:opts {:name "Heap"}})
@@ -766,7 +766,7 @@
    (sab/html
     (let [faceup? #(or (:seen %) (:rezzed %))]
       [:div.blue-shade.discard
-       (drop-area :corp "Archives" {:on-click #(-> (om/get-node owner "popup") js/$ .fadeIn)})
+       (drop-area :corp "Archives" {:on-click #(-> (om/get-node owner "popup") js/$ .fadeToggle)})
 
        (when-not (empty? discard)
          (let [c (last discard)]

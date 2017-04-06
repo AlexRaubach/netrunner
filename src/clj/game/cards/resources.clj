@@ -636,10 +636,10 @@
     :abilities [ability]})
 
    "John Masanori"
-   {:events {:successful-run {:req (req (first-event? state side :successful-run))
+   {:events {:successful-run {:req (req (= 1 (count (get-in @state [:runner :register :successful-run]))))
                               :msg "draw 1 card" :once-key :john-masanori-draw
                               :effect (effect (draw))}
-             :unsuccessful-run {:req (req (first-event? state side :unsuccessful-run))
+             :unsuccessful-run {:req (req (= 1 (count (get-in @state [:runner :register :unsuccessful-run]))))
                                 :delayed-completion true
                                 :msg "take 1 tag" :once-key :john-masanori-tag
                                 :effect (effect (tag-runner :runner eid 1))}}}
@@ -1292,14 +1292,17 @@
    "The Supplier"
    (let [ability  {:label "Install a hosted card (start of turn)"
                    :prompt "Choose a card hosted on The Supplier to install"
-                   :once :per-turn
                    :req (req (some #(can-pay? state side nil (modified-install-cost state side % [:credit -2]))
-                                   (:hosted card)))
+                                        (:hosted card)))
                    :choices {:req #(= "The Supplier" (:title (:host %)))}
-                   :msg (msg "install " (:title target) " lowering its install cost by 2")
-                   :effect (req (when (can-pay? state side nil (modified-install-cost state side target [:credit -2]))
+                   :effect (req
+                             (runner-can-install? state side target nil)
+                             (when (and (can-pay? state side nil (modified-install-cost state side target [:credit -2]))
+                                           (not (and (:uniqueness target) (in-play? state target))))
                                   (install-cost-bonus state side [:credit -2])
                                   (runner-install state side target)
+                                  :once :per-turn
+                                  (system-msg state side (str "uses The Supplier to install " (:title target) " lowering its install cost by 2"))
                                   (update! state side (-> card
                                                           (assoc :supplier-installed (:cid target))
                                                           (update-in [:hosted]
@@ -1400,7 +1403,7 @@
                                 (add-counter state side target :virus 1)))}]}
 
    "Wasteland"
-   {:events {:runner-trash {:req (req (and (first-event? state :runner :runner-trash) (:installed target)))
+   {:events {:runner-trash {:req (req (and (= 1 (get-in @state [:runner :register :trashed-installed])) (:installed target)))
                      :effect (effect (gain :credit 1))
                      :msg "to gain 1[Credit]"}}}
 

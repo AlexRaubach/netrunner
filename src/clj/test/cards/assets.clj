@@ -77,6 +77,21 @@
       (card-ability state :corp alix 0)
       (is (= 8 (get-in @state [:corp :credit]))))) "Gain 4 credits from Alix")
 
+(deftest blacklist-steal
+  ;; Blacklist - #2426.  Need to allow steal.
+  (do-game
+    (new-game (default-corp [(qty "Fetal AI" 3) (qty "Blacklist" 1)])
+              (default-runner))
+    (trash-from-hand state :corp "Fetal AI")
+    (play-from-hand state :corp "Blacklist" "New remote")
+    (core/rez state :corp (get-content state :remote1 0))
+    (= 1 (count (get-in @state [:corp :discard])))
+    (take-credits state :corp)
+    (run-empty-server state :archives)
+    (prompt-choice :runner "Yes")
+    (is (= 2 (:agenda-point (get-runner))) "Runner has 2 agenda points")
+    (= 1 (count (get-in @state [:runner :scored])))))
+
 (deftest bio-ethics-multiple
   ;; Bio-Ethics Association: preventing damage from multiple copies
   (do-game
@@ -176,6 +191,56 @@
       (is (= 8 (:credit (get-runner))) "Runner paid no credits")
       (is (= 1 (:tag (get-runner))) "Runner took 1 tag"))
       (is (empty? (:prompt (get-runner))) "City Surveillance only fired once")))
+
+(deftest clyde-van-rite
+  ;; Clyde Van Rite - Multiple scenarios involving Runner not having credits/cards to trash
+  (do-game
+    (new-game (default-corp [(qty "Clyde Van Rite" 1)])
+              (default-runner [(qty "Sure Gamble" 3) (qty "Restructure" 2) (qty "John Masanori" 2)]))
+    (play-from-hand state :corp "Clyde Van Rite" "New remote")
+    (let [clyde (get-content state :remote1 0)]
+      (core/rez state :corp clyde)
+      (take-credits state :corp)
+      (take-credits state :runner)
+      (is (:corp-phase-12 @state) "Corp in Step 1.2")
+      ;; Runner chooses to pay - has 1+ credit so pays 1 credit
+      (card-ability state :corp clyde 0)
+      (is (= 9 (:credit (get-runner))))
+      (is (= 2 (count (:deck (get-runner)))))
+      (prompt-choice :runner "Pay 1 [Credits]")
+      (is (= 8 (:credit (get-runner))))
+      (is (= 2 (count (:deck (get-runner)))))
+      (core/end-phase-12 state :corp nil)
+      (take-credits state :corp)
+      (take-credits state :runner)
+      ;; Runner chooses to pay - can't pay 1 credit so trash top card
+      (core/lose state :runner :credit 12)
+      (card-ability state :corp clyde 0)
+      (is (= 0 (:credit (get-runner))))
+      (is (= 2 (count (:deck (get-runner)))))
+      (prompt-choice :runner "Pay 1 [Credits]")
+      (is (= 0 (:credit (get-runner))))
+      (is (= 1 (count (:deck (get-runner)))))
+      (core/end-phase-12 state :corp nil)
+      (take-credits state :corp)
+      (take-credits state :runner)
+      ;; Runner chooses to trash - has 1+ card in Stack so trash 1 card
+      (card-ability state :corp clyde 0)
+      (is (= 4 (:credit (get-runner))))
+      (is (= 1 (count (:deck (get-runner)))))
+      (prompt-choice :runner "Trash top card")
+      (is (= 4 (:credit (get-runner))))
+      (is (= 0 (count (:deck (get-runner)))))
+      (core/end-phase-12 state :corp nil)
+      (take-credits state :corp)
+      (take-credits state :runner)
+      ;; Runner chooses to trash - no cards in Stack so pays 1 credit
+      (card-ability state :corp clyde 0)
+      (is (= 8 (:credit (get-runner))))
+      (is (= 0 (count (:deck (get-runner)))))
+      (prompt-choice :runner "Trash top card")
+      (is (= 7 (:credit (get-runner))))
+      (is (= 0 (count (:deck (get-runner))))))))
 
 (deftest daily-business-show
   ;; Daily Business Show - Full test
@@ -583,6 +648,22 @@
       (run-empty-server state "Server 1")
       (prompt-choice :corp "Yes") ; choose to do the optional ability
       (is (= 2 (:tag (get-runner))) "Runner given 2 tags"))))
+
+(deftest hostile-infrastructure
+  ;; Hostile Infrastructure - do 1 net damage when runner trashes a corp card
+  (do-game
+    (new-game (default-corp [(qty "Hostile Infrastructure" 3)])
+              (default-runner))
+    (core/gain state :runner :credit 50)
+    (play-from-hand state :corp "Hostile Infrastructure" "New remote")
+    (core/rez state :corp (get-content state :remote1 0))
+    (take-credits state :corp)
+    (run-empty-server state :hq)
+    (prompt-choice :runner "Yes")
+    (is (= 1 (count (:discard (get-runner)))) "Took 1 net damage")
+    (run-empty-server state :remote1)
+    (prompt-choice :runner "Yes")
+    (is (= 2 (count (:discard (get-runner)))) "Took 1 net damage")))
 
 (deftest hyoubu-research-facility
   (do-game
