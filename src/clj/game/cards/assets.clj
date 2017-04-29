@@ -174,6 +174,12 @@
    {:effect (effect (lock-zone (:cid card) :runner :discard))
     :leave-play (effect (release-zone (:cid card) :runner :discard))}
 
+   "Breached Dome"
+   {:access {:msg "do 1 meat damage and trash the top card of the stack"
+             :delayed-completion true
+             :effect (effect (damage eid :meat 1 {:card card})
+                             (mill :runner) ) }}
+
    "Brain-Taping Warehouse"
    {:events {:pre-rez
              {:req (req (and (ice? target) (has-subtype? target "Bioroid")))
@@ -583,6 +589,20 @@
       :derezzed-events {:runner-turn-ends corp-rez-toast}
       :abilities [choose-ability]})
 
+   "Illegal Arms Factory"
+   (let [ability {:msg "gain 1 [Credits] and draw 1 card"
+                  :label "Gain 1 [Credits] and draw 1 card (start of turn)"
+                  :once :per-turn
+                  :req (req (:corp-phase-12 @state))
+                  :effect (effect (gain :credit 1)
+                                  (draw))}]
+     {:derezzed-events {:runner-turn-ends corp-rez-toast}
+      :events {:corp-turn-begins ability}
+      :abilities [ability]
+      :trash-effect {:req (req (= :servers (first (:previous-zone card))))
+                     :effect (effect (gain :corp :bad-publicity 1)
+                                     (system-msg :corp (str "takes 1 bad publicity from Illegal Arms Factory")))}})
+
    "Indian Union Stock Exchange"
    (let [iuse {:req (req (not= (:faction target) (:faction (:identity corp))))
                :msg "gain 1 [Credits]"
@@ -704,6 +724,47 @@
                                     (system-msg state side (str "uses Lily Lockwell, but did not find an Operation in R&D"))))
                               (lose state :runner :tag 1))}]}
 
+   "Long-Term Investment"
+   {:derezzed-events {:runner-turn-ends corp-rez-toast}
+    :abilities [{:label "Move any number of [Credits] to your credit pool"
+                 :req (req (>= (get-in card [:counter :credit] 0) 8))
+                 :cost [:click 1]
+                 :prompt "How many [Credits]?"
+                 :choices {:counter :credit}
+                 :msg (msg "gain " target " [Credits]")
+                 :effect (effect (gain :credit target))}]
+    :events {:corp-turn-begins {:effect (effect (add-counter card :credit 2)
+                                                (system-msg (str "adds 2 [Credit] to Long-Term Investment")))}}}
+
+   "Marilyn Campaign"
+   (let [ability {:msg "gain 2 [Credits]"
+                  :counter-cost [:credit 2]
+                  :once :per-turn
+                  :req (req (:corp-phase-12 @state))
+                  :label (str "Gain 2 [Credits] (start of turn)")
+                  :effect (req (gain state :corp :credit 2)
+                               (when (zero? (get-in card [:counter :credit]))
+                                 (trash state :corp card)))}]
+     {:effect (effect (add-counter card :credit 8))
+      :derezzed-events {:runner-turn-ends corp-rez-toast}
+      :events {:corp-turn-begins ability}
+      :abilities [ability]
+      :trash-effect {:req (req (= :servers (first (:previous-zone card))))
+                     :delayed-completion true
+                     :effect (effect (show-wait-prompt :runner "Corp to use Marilyn Campaign")
+                                     (continue-ability :corp
+                                       {:optional
+                                        {:prompt "Shuffle Marilyn Campaign into R&D?"
+                                         :player :corp
+                                         :yes-ability {:msg "shuffle it back into R&D"
+                                                       :effect (req (move state :corp card :deck)
+                                                                    (shuffle! state :corp :deck)
+                                                                    (clear-wait-prompt state :runner)
+                                                                    (effect-completed state side eid))}
+                                         :no-ability {:effect (req (clear-wait-prompt state :runner)
+                                                                   (effect-completed state side eid))}}}
+                                      card nil))}})
+
    "Mark Yale"
    {:events {:agenda-counter-spent {:effect (effect (gain :credit 1))
                                     :msg "gain 1 [Credits]"}}
@@ -812,7 +873,8 @@
                   :label "Gain 1 [Credits] (start of turn)"
                   :once :per-turn
                   :effect (effect (gain :credit 1))}]
-     {:derezzed-events {:runner-turn-ends corp-rez-toast}
+     {:implementation "Manual - click NASX to add power counters"
+      :derezzed-events {:runner-turn-ends corp-rez-toast}
       :events {:corp-turn-begins ability}
       :abilities [ability
                   {:label "Place 1 power counter" :cost [:credit 1]
@@ -1218,6 +1280,12 @@
                                                :choices {:req can-be-advanced?}
                                                :effect (effect (add-prop target :advance-counter 1 {:placed true}))}}}
                                card nil))}}
+
+   "Student Loans"
+   {:events {:pre-play-instant
+             {:req (req (and (is-type? target "Event") (seq (filter #(= (:title %) (:title target)) (:discard runner)))))
+              :effect (effect (system-msg :corp (str "makes the runner pay an extra 2 [Credits] due to Student Loans"))
+                              (play-cost-bonus [:credit 2]))}}}
 
    "Sundew"
    {:events {:runner-spent-click {:once :per-turn

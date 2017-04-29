@@ -372,6 +372,21 @@
     (is (= 1 (count (:discard (get-runner)))) "Decoy trashed")
     (is (= 0 (:tag (get-runner))) "Tag avoided")))
 
+(deftest donut-taganes
+  ;; Donut Taganes - add 1 to play cost of Operations & Events when this is in play
+  (do-game
+    (new-game (default-corp)
+              (default-runner [(qty "Donut Taganes" 1) (qty "Easy Mark" 1)]))
+    (take-credits state :corp)
+    (play-from-hand state :runner "Donut Taganes")
+    (is (= 2 (:credit (get-runner))) "Donut played for 3c")
+    (play-from-hand state :runner "Easy Mark")
+    (is (= 4 (:credit (get-runner))) "Easy Mark only gained 2c")
+    (take-credits state :runner)
+    (is (= 8 (:credit (get-corp))) "Corp has 8c")
+    (play-from-hand state :corp "Hedge Fund")
+    (is (= 11 (:credit (get-corp))) "Corp has 11c")))
+
 (deftest eden-shard
   ;; Eden Shard - Install from Grip in lieu of accessing R&D; trash to make Corp draw 2
   (do-game
@@ -861,9 +876,28 @@
       (core/move state :corp (find-card "Architect" (:hand (get-corp))) :deck)
       (card-subroutine state :corp architect 0)
       (prompt-choice :corp (find-card "Architect" (:deck (get-corp))))
-     ; (prompt-choice :corp "Architect")
       (prompt-choice :corp "HQ")
       (is (= 3 (:credit (get-corp))) "Corp has 7 credits"))))
+
+(deftest neutralize-all-threats
+  ;; Neutralize All Threats - Access 2 cards from HQ, force trash first accessed card with a trash cost
+  (do-game
+    (new-game (default-corp [(qty "Hedge Fund" 2) (qty "Breaker Bay Grid" 1) (qty "Elizabeth Mills" 1)])
+              (default-runner [(qty "Neutralize All Threats" 1)]))
+    (play-from-hand state :corp "Breaker Bay Grid" "New remote")
+    (play-from-hand state :corp "Elizabeth Mills" "New remote")
+    (take-credits state :corp)
+    (play-from-hand state :runner "Neutralize All Threats")
+    (run-empty-server state "HQ")
+    (prompt-choice :runner "Card from hand")
+    (prompt-choice :runner "OK") ; access first Hedge Fund
+    (prompt-choice :runner "Card from hand")
+    (prompt-choice :runner "OK") ; access second Hedge Fund
+    (run-empty-server state "Server 1")
+    (is (= 3 (:credit (get-runner))) "Forced to pay 2c to trash BBG")
+    (is (= 1 (count (:discard (get-corp)))) "Breaker Bay Grid trashed")
+    (run-empty-server state "Server 2")
+    (is (not (empty? (:prompt (get-runner)))) "Runner prompt to trash Elizabeth Mills")))
 
 (deftest new-angeles-city-hall
   ;; New Angeles City Hall - Avoid tags; trash when agenda is stolen

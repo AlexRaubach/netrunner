@@ -115,6 +115,35 @@
                             :msg "draw a card"
                             :effect (effect (draw 1))}}}
 
+   "Ayla \"Bios\" Rahim: Simulant Specialist"
+   {:abilities [{:label "[:click] Add 1 card from NVRAM to your grip"
+                 :cost [:click 1]
+                 :delayed-completion true
+                 :prompt "Choose a card from NVRAM"
+                 :choices (req (cancellable (:hosted card)))
+                 :msg "move a card from NVRAM to HQ"
+                 :effect (effect (move target :hand)
+                                 (effect-completed eid card))}]
+    :events {:pre-start-game
+             {:req (req (= side :runner))
+              :delayed-completion true
+              :effect (req (show-wait-prompt state :corp "the Runner to choose cards for NVRAM")
+                           (doseq [c (take 6 (:deck runner))]
+                             (move state side c :play-area))
+                             (continue-ability state side
+                                               {:prompt (str "Choose 4 cards for NVRAM")
+                                                :delayed-completion true
+                                                :choices {:max 4
+                                                          :req #(and (= (:side %) "Runner")
+                                                                     (= (:zone %) [:play-area]))}
+                                                :effect (req (doseq [c targets]
+                                                               (host state side (get-card state card) c {:facedown true}))
+                                                             (doseq [c (get-in @state [:runner :play-area])]
+                                                               (move state side c :deck))
+                                                             (shuffle! state side :deck)
+                                                             (clear-wait-prompt state :corp)
+                                                             (effect-completed state side eid card))} card nil))}}}
+
    "Blue Sun: Powering the Future"
    {:flags {:corp-phase-12 (req (and (not (:disabled card))
                                      (some #(rezzed? %) (all-installed state :corp))))}
@@ -693,6 +722,16 @@
                                 (trigger-event state side :ice-subtype-changed)))}]
     :events {:run-ends nil}}
 
+   "Seidr Laboratories: Destiny Defined"
+   {:implementation "Manually triggered"
+    :abilities [{:req (req (:run @state))
+                 :once :per-turn
+                 :prompt "Choose a card to add to the top of R&D"
+                 :show-discard true
+                 :choices {:req #(and (= (:side %) "Corp") (in-discard? %))}
+                 :effect (effect (move target :deck {:front true}))
+                 :msg (msg "add " (if (:seen target) (:title target) "a card") " to the top of R&D")}]}
+
    "Silhouette: Stealth Operative"
    {:events {:successful-run
              {:interactive (req (some #(not (rezzed? %)) (all-installed state :corp)))
@@ -704,6 +743,15 @@
                                                  :delayed-completion true }
                                                 card nil))}}}
 
+   "Skorpios Defense Systems: Persuasive Power"
+   {:implementation "Manually triggered, no restriction on which cards in Heap can be targeted"
+    :abilities [{:label "Remove a card in the Heap that was just trashed from the game"
+                 :prompt "Choose a card in the Runner's Heap that was just trashed"
+                 :once :per-turn
+                 :choices (req (:discard runner))
+                 :msg (msg "remove " (:title target) " from the game")
+                 :effect (effect (move :runner target :rfg))}]}
+
    "Spark Agency: Worldswide Reach"
    {:events
     {:rez {:req (req (and (has-subtype? target "Advertisement")
@@ -711,6 +759,41 @@
                                           (flatten (turn-events state :corp :rez))))))
            :effect (effect (lose :runner :credit 1))
            :msg (msg "make the Runner lose 1 [Credits] by rezzing an advertisement")}}}
+
+   "Steve Cambridge: Master Grifter"
+   {:events {:successful-run
+             {:req (req (and (= target :hq)
+                             (first-successful-run-on-server? state :hq)
+                             (> (count (:discard runner)) 1)))
+              :interactive (req true)
+              :delayed-completion true
+              :effect (effect (continue-ability
+                                {:delayed-completion true
+                                 :prompt "Choose 2 cards in your Heap"
+                                 :show-discard true
+                                 :choices {:max 2 :req #(and (in-discard? %) (= (:side %) "Runner"))}
+                                 :cancel-effect (req (effect-completed state side eid))
+                                 :effect (req (let [c1 (first targets)
+                                                    c2 (second targets)]
+                                                (show-wait-prompt state :runner "Corp to choose which card to remove from the game")
+                                                (continue-ability state :corp
+                                                  {:prompt "Choose which card to remove from the game"
+                                                   :player :corp
+                                                   :choices [c1 c2]
+                                                   :effect (req (if (= target c1)
+                                                                  (do (move state :runner c1 :rfg)
+                                                                      (move state :runner c2 :hand)
+                                                                      (system-msg state side (str "uses Steve Cambridge: Master Grifter"
+                                                                                                  " to add " (:title c2) " to their Grip."
+                                                                                                  " Corp removes " (:title c1) " from the game")))
+                                                                  (do (move state :runner c2 :rfg)
+                                                                      (move state :runner c1 :hand)
+                                                                      (system-msg state side (str "uses Steve Cambridge: Master Grifter"
+                                                                                                  " to add " (:title c1) " to their Grip."
+                                                                                                  " Corp removes " (:title c2) " from the game"))))
+                                                                (clear-wait-prompt state :runner)
+                                                                (effect-completed state side eid))} card nil)))}
+                               card nil))}}}
 
    "Strategic Innovations: Future Forward"
    {:events {:pre-start-game {:effect draft-points-target}

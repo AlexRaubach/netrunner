@@ -341,7 +341,7 @@
    {:req (req (and (some #{:hq} (:successful-run runner-reg))
                    (some #{:rd} (:successful-run runner-reg))
                    (some #{:archives} (:successful-run runner-reg))))
-    :effect (req (swap! state assoc-in [:runner :extra-turn] true)
+    :effect (req (swap! state update-in [:runner :extra-turns] (fnil inc 0))
                  (move state side (first (:play-area runner)) :rfg))
     :msg "take an additional turn after this one"}
 
@@ -1005,6 +1005,10 @@
    "Prey"
    {:prompt "Choose a server" :choices (req runnable-servers) :effect (effect (run target nil card))}
 
+   "Process Automation"
+   {:msg "gain 2 [Credits] and draw 1 card"
+    :effect (effect (gain :credit 2) (draw 1))}
+
    "Push Your Luck"
    {:effect (effect (show-wait-prompt :runner "Corp to guess Odd or Even")
                     (resolve-ability
@@ -1291,6 +1295,26 @@
     :choices {:req #(and (has-subtype? % "Virus") (:added-virus-counter %))}
     :effect (req (add-counter state :runner target :virus 2))}
 
+   "SYN Attack"
+   {:effect (req (if (< (count (:hand corp)) 2)
+                   (draw state :corp 4)
+                   (do (show-wait-prompt state :runner "Corp to choose an option for SYN Attack")
+                       (resolve-ability state :corp
+                         {:prompt "Discard 2 cards or draw 4 cards?"
+                          :choices ["Discard 2" "Draw 4"]
+                          :effect (req (if (= target "Draw 4")
+                                         (do (draw state :corp 4)
+                                             (system-msg state :corp (str "draws 4 cards from SYN Attack"))
+                                             (clear-wait-prompt state :runner))
+                                         (resolve-ability state :corp
+                                           {:prompt "Choose 2 cards to discard"
+                                            :choices {:max 2 :req #(and (in-hand? %) (= (:side %) "Corp"))}
+                                            :effect (effect (trash-cards :corp targets)
+                                                            (system-msg :corp (str "discards 2 cards from SYN Attack"))
+                                                            (clear-wait-prompt :runner))}
+                                          card nil)))}
+                        card nil))))}
+
    "System Outage"
    {:events {:corp-draw {:req (req (not (first-event? state side :corp-draw)))
                          :msg "force the Corp to lose 1 [Credits]"
@@ -1382,18 +1406,19 @@
     :events {:runner-turn-ends nil}}
 
    "Trade-In"
-   {:prompt "Choose a hardware to trash"
-    :choices {:req #(and (installed? %)
-                         (is-type? % "Hardware"))}
-    :msg (msg "trash " (:title target) " and gain " (quot (:cost target) 2) " [Credits]")
-    :effect (effect (trash target) (gain [:credit (quot (:cost target) 2)])
-                    (resolve-ability {:prompt "Choose a Hardware to add to your Grip from your Stack"
-                                      :choices (req (filter #(is-type? % "Hardware")
-                                                            (:deck runner)))
-                                      :msg (msg "add " (:title target) " to their Grip")
-                                      :effect (effect (trigger-event :searched-stack nil)
-                                                      (shuffle! :deck)
-                                                      (move target :hand))} card nil))}
+   {:additional-cost [:hardware 1]
+    :effect (effect (register-events (:events (card-def card)) (assoc card :zone '(:discard))))
+    :events {:runner-trash {:effect (effect (gain :credit (quot (:cost target) 2))
+                                            (system-msg (str "trashes " (:title target) " and gains " (quot (:cost target) 2) " [Credits]"))
+                                            (continue-ability {:prompt "Choose a Hardware to add to your Grip from your Stack"
+                                                               :choices (req (filter #(is-type? % "Hardware")
+                                                                                     (:deck runner)))
+                                                               :msg (msg "add " (:title target) " to their Grip")
+                                                               :effect (effect (trigger-event :searched-stack nil)
+                                                                               (shuffle! :deck)
+                                                                               (move target :hand)
+                                                                               (unregister-events card))} card nil))}}}
+
 
    "Traffic Jam"
    {:effect (effect (update-all-advancement-costs))

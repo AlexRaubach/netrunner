@@ -50,6 +50,18 @@
                                                                   (unregister-events state side card))}} card))}]
     :events {:run-ends nil}}
 
+   "Ben Musashi"
+   (let [bm {:req (req (or (= (:zone card) (:zone target)) (= (central->zone (:zone target)) (butlast (:zone card)))))
+             :effect (effect (steal-cost-bonus [:net-damage 2]))}]
+     {:trash-effect
+              {:req (req (and (= :servers (first (:previous-zone card))) (:run @state)))
+               :effect (effect (register-events {:pre-steal-cost (assoc bm :req (req (or (= (:zone target) (:previous-zone card))
+                                                                                         (= (central->zone (:zone target))
+                                                                                            (butlast (:previous-zone card))))))
+                                                 :run-ends {:effect (effect (unregister-events card))}}
+                                                (assoc card :zone '(:discard))))}
+      :events {:pre-steal-cost bm :run-ends nil}})
+
    "Bernice Mai"
    {:events {:successful-run {:interactive (req true)
                               :req (req this-server)
@@ -253,7 +265,7 @@
    {:abilities [{:req (req this-server)
                  :label "Force the Runner to lose all [Credits] from spending or losing a [Click]"
                  :msg (msg "force the Runner to lose all " (:credit runner) " [Credits]") :once :per-run
-                 :effect (effect (lose :runner :credit :all))}]}
+                 :effect (effect (lose :runner :credit :all :run-credit :all))}]}
 
    "Hokusai Grid"
    {:events {:successful-run {:req (req this-server) :msg "do 1 net damage"
@@ -275,6 +287,22 @@
    {:recurring (effect (set-prop card :rec-counter (count (get-remotes @state))))
     :effect (effect (set-prop card :rec-counter (count (get-remotes @state))))}
 
+   "K. P. Lynn"
+   (let [abi {:prompt "Choose one"
+              :player :runner
+              :choices ["Take 1 tag" "End the run"]
+              :effect (req (if (= target "Take 1 tag")
+                             (do (tag-runner state :runner 1)
+                                 (system-msg state :corp (str "uses K. P. Lynn. Runner chooses to take 1 tag")))
+                             (do (end-run state side)
+                                 (system-msg state :corp (str "uses K. P. Lynn. Runner chooses to end the run")))))}]
+     {:events {:pass-ice {:req (req (and this-server (= (:position run) 1))) ; trigger when last ice passed
+                          :delayed-completion true
+                          :effect (req (continue-ability state :runner abi card nil))}
+               :run {:req (req (and this-server (= (:position run) 0))) ; trigger on unprotected server
+                     :delayed-completion true
+                     :effect (req (continue-ability state :runner abi card nil))}}})
+
    "Manta Grid"
    {:events {:successful-run-ends
              {:msg "gain a [Click] next turn"
@@ -291,6 +319,13 @@
                                                         (rezzed? %))}
                                    :msg (msg "resolve a subroutine on " (:title target))}}
                  :effect (effect (trash card))}]}
+
+   "Mason Bellamy"
+   {:implementation "Manually triggered by Corp"
+    :abilities [{:label "Force the Runner to lose [Click] after an encounter where they broke a subroutine"
+                 :req (req this-server)
+                 :msg "force the Runner to lose [Click]"
+                 :effect (effect (lose :runner :click 1))}]}
 
    "Midori"
    {:abilities

@@ -364,6 +364,9 @@
                  :choices {:req installed?} :effect (effect (expose eid target))
                  :msg "expose 1 card"}]}
 
+   "LLDS Memory Diamond"
+   {:in-play [:link 1 :memory 1 :hand-size-modification 1]}
+
    "LLDS Processor"
    {:events
      (let [llds {:effect (req (let [cards (:llds-target card)]
@@ -415,8 +418,8 @@
                                 (when (is-type? c "Agenda") ; trashing before the :access events actually fire; fire them manually
                                   (resolve-steal-events state side c))
                                 (move state :corp c :deck)
-                                (close-access-prompt state side)
-                                (tag-runner state :runner eid 1)))}
+                                (tag-runner state :runner eid 1)
+                                (close-access-prompt state side)))}
                 {:once :per-turn
                  :label "Move a previously accessed card to bottom of R&D"
                  :effect (effect (resolve-ability
@@ -574,6 +577,26 @@
                  :effect (req (damage-prevent state side :meat 1)
                               (when (= (get-in card [:counter :power]) 0)
                                 (trash state side card {:unpreventable true})))}]}
+
+   "Polyhistor"
+   (let [abi {:optional
+              {:prompt "Draw 1 card to force the Corp to draw 1 card?"
+               :yes-ability {:msg "draw 1 card and force the Corp to draw 1 card"
+                             :effect (effect (draw :runner 1)
+                                             (draw :corp 1))}
+               :no-ability {:effect (req (system-msg state side (str "does not use Polyhistor"))
+                                         (effect-completed state side eid))}}}]
+     {:in-play [:link 1 :memory 1]
+      :events {:pass-ice {:req (req (and (= (:server run) [:hq]) (= (:position run) 1) ; trigger when last ICE passed
+                                         (pos? (count (:deck runner)))))
+                          :delayed-completion true
+                          :once :per-turn
+                          :effect (req (continue-ability state :runner abi card nil))}
+               :run {:req (req (and (= (:server run) [:hq]) (= (:position run) 0) ; trigger on unprotected HQ
+                                    (pos? (count (:deck runner)))))
+                     :delayed-completion true
+                     :once :per-turn
+                     :effect (req (continue-ability state :runner abi card nil))}}})
 
    "Prepaid VoicePAD"
    {:recurring 1}
@@ -853,7 +876,7 @@
               :prompt "Which card from the top of R&D would you like to access? (Card 1 is on top.)"
               :choices (take n ["1" "2" "3" "4" "5"])
               :effect (effect (system-msg (str "accesses the card at position " (Integer/parseInt target) " of R&D"))
-                              (handle-access eid [(nth (:deck corp) (dec (Integer/parseInt target)))]))})]
+                              (handle-access eid [(nth (:deck corp) (dec (Integer/parseInt target)))] "an unseen card"))})]
      {:events {:successful-run
                {:req (req (= target :rd))
                 :interactive (req true)

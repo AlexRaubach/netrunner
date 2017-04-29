@@ -483,10 +483,10 @@
                                (continue-ability state side (hr-choice (remove-once #(not= target %) remaining)
                                                                         chosen n original) card nil)
                                (continue-ability state side (hr-final chosen original) card nil))))})]
-     {:delayed-completion true
+     {:additional-cost [:mill 1]
+      :delayed-completion true
       :msg "trash the top card of R&D, draw 3 cards, and add 3 cards in HQ to the top of R&D"
-      :effect (req (mill state :corp)
-                   (draw state side 3)
+      :effect (req (draw state side 3)
                    (show-wait-prompt state :runner "Corp to add 3 cards in HQ to the top of R&D")
                    (let [from (get-in @state [:corp :hand])]
                      (continue-ability state :corp (hr-choice from '() 3 from) card nil)))})
@@ -587,6 +587,9 @@
                              (continue-ability state side (iop (dec x)) card nil)))
               :unsuccessful {:msg "take 1 bad publicity" :effect (effect (gain :corp :bad-publicity 1))}}})
 
+   "IPO"
+   {:msg "gain 13 [Credits]" :effect (effect (gain :credit 13))}
+
    "Lag Time"
    {:effect (effect (update-all-ice))
     :events {:pre-ice-strength {:effect (effect (ice-strength-bonus 1 target))}}
@@ -649,6 +652,19 @@
                               :trace {:base 2 :msg "give the Runner 1 tag"
                                       :delayed-completion true
                                       :effect (effect (tag-runner :runner eid 1))}}}}
+
+   "MCA Informant"
+   {:implementation "Runner must deduct 1 click and 2 credits, then trash host manually"
+    :req (req (not-empty (filter #(and (has-subtype? % "Connection")
+                                         (installed? %)) (concat (all-installed state :runner)
+                                                                 (all-installed state :corp)))))
+    :prompt "Choose a connection to host MCA Informant on it"
+    :choices {:req #(and (has-subtype? % "Connection") (installed? %))}
+    :msg (msg "host it on " (card-str state target) ". The Runner has an additional tag")
+    :effect (req (host state side (get-card state target) (assoc card :zone [:discard] :seen true))
+                 (swap! state update-in [:runner :tag] inc))
+    :leave-play (req (swap! state update-in [:runner :tag] dec)
+                     (system-msg state :corp "trashes MCA Informant"))}
 
    "Medical Research Fundraiser"
    {:msg "gain 8 [Credits]. The Runner gains 3 [Credits]"
@@ -734,15 +750,15 @@
                         card nil))))}
 
    "Observe and Destroy"
-   {:req (req (and (pos? (:tag runner))
+   {:additional-cost [:tag 1]
+    :req (req (and (pos? (:tag runner))
                    (< (:credit runner) 6)))
     :delayed-completion true
     :effect (effect (continue-ability
                       {:prompt "Choose an installed card to trash"
                        :choices {:req installed?}
                        :msg (msg "remove 1 Runner tag and trash " (:title target))
-                       :effect (effect (lose :runner :tag 1)
-                                       (trash target))}
+                       :effect (effect (trash target))}
                      card nil))}
 
    "Oversight AI"
@@ -1027,9 +1043,7 @@
                          (update! state side (dissoc card :so-activated)))
          remove-ability {:req (req (:so-activated card))
                          :effect (effect (remove-effect card))}]
-     {:msg (msg (when (and (= :runner (:active-player @state))
-                           (empty? (:made-run runner-reg)))
-             "add an additional cost of 1 [Credit] to make the first run this turn"))
+     {:msg "add a cost of 1 [Credit] for the Runner to make the first run each turn"
       :effect (req (when (and (= :runner (:active-player @state))
                               (empty? (:made-run runner-reg)))
                      (add-effect state side card)))
@@ -1258,14 +1272,17 @@
                                        tol nil)))}
                      card nil)))}
 
-   "Wetwork Refit"
-   {:choices {:req #(and (ice? %)
-                         (has-subtype? % "Bioroid")
-                         (rezzed? %))}
-    :msg (msg "give " (card-str state target) "\"[Subroutine] Do 1 brain damage\" before all its other subroutines")
-    :effect (effect (update! (assoc target :subroutines (cons (do-brain-damage 1) (:subroutines target))))
-                    (host (get-card state target) (assoc card :zone [:discard] :seen true)))
-    :leave-play (effect (update! (assoc (:host card) :subroutines (rest (:subroutines (:host card))))))}
+   "Ultraviolet Clearance"
+   {:delayed-completion true
+    :effect (req (gain state side :credit 10)
+                 (draw state side 4)
+                 (continue-ability state side
+                   {:prompt "Choose a card in HQ to install"
+                    :choices {:req #(and (in-hand? %) (= (:side %) "Corp") (not (is-type? % "Operation")))}
+                    :msg "gain 10 [Credits], draw 4 cards, and install 1 card from HQ"
+                    :cancel-effect (req (effect-completed state side eid))
+                    :effect (effect (corp-install target nil))}
+                  card nil))}
 
    "Violet Level Clearance"
    {:msg "gain 8 [Credits] and draw 4 cards"
@@ -1278,6 +1295,15 @@
                                            (is-type? % "Resource"))}
                       :msg (msg "trash " (:title target))
                       :effect (effect (trash target))}}}
+
+   "Wetwork Refit"
+   {:choices {:req #(and (ice? %)
+                         (has-subtype? % "Bioroid")
+                         (rezzed? %))}
+    :msg (msg "give " (card-str state target) "\"[Subroutine] Do 1 brain damage\" before all its other subroutines")
+    :effect (effect (update! (assoc target :subroutines (cons (do-brain-damage 1) (:subroutines target))))
+                    (host (get-card state target) (assoc card :zone [:discard] :seen true)))
+    :leave-play (effect (update! (assoc (:host card) :subroutines (rest (:subroutines (:host card))))))}
 
    "Witness Tampering"
    {:msg "remove 2 bad publicity"

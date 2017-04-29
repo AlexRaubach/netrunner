@@ -187,6 +187,34 @@
                               :effect (effect (prompt! card (str "The top card of R&D is "
                                                                  (:title (first (:deck corp)))) ["OK"] {}))}}}
 
+   "Dhegdheer"
+   {:abilities [{:label "Install a program on Dhegdheer"
+                 :req (req (empty? (:hosted card)))
+                 :effect (effect (resolve-ability
+                                   {:cost [:click 1]
+                                    :prompt "Choose a program in your Grip to install on Dhegdheer"
+                                    :choices {:req #(and (is-type? % "Program")
+                                                         (runner-can-install? state side % false)
+                                                         (in-hand? %))}
+                                    :msg (msg "host " (:title target) ", lowering its cost by 1 [Credit]")
+                                    :effect (effect (gain :memory (:memoryunits target))
+                                                    (install-cost-bonus [:credit -1])
+                                                    (runner-install target {:host-card card})
+                                                    (update! (assoc (get-card state card) :dheg-prog (:cid target))))}
+                                  card nil))}
+                {:label "Host an installed program on Dhegdheer"
+                 :req (req (empty? (:hosted card)))
+                 :prompt "Choose an installed program to host on Dhegdheer"
+                 :choices {:req #(and (is-type? % "Program")
+                                      (installed? %))}
+                 :msg (msg "host " (:title target) ", lowering its cost by 1 [Credit]")
+                 :effect (effect (host card target)
+                                 (gain :memory (:memoryunits target) :credit 1)
+                                 (update! (assoc (get-card state card) :dheg-prog (:cid target))))}]
+    :events {:card-moved {:req (req (= (:cid target) (:dheg-prog (get-card state card))))
+                          :effect (effect (update! (dissoc card :dheg-prog))
+                                          (lose :memory (:memoryunits target)))}}}
+
    "Diwan"
    {:prompt "Choose the server that this copy of Diwan is targeting:"
     :choices (req servers)
@@ -509,7 +537,8 @@
                               state :runner
                               {:prompt (msg "Choose a subtype")
                                :choices ["Sentry" "Code Gate" "Barrier"]
-                               :msg (msg "make " (card-str state ice) " gain " (.toLowerCase target) " until the end of the next run this turn")
+                               :msg (msg "spend [Click] and make " (card-str state ice) " gain " (.toLowerCase target)
+                                         " until the end of the next run this turn")
                                :effect (effect (update! (assoc ice :subtype (combine-subtypes true stypes target)))
                                                (update-ice-strength (get-card state ice))
                                                (register-events {:run-ends
@@ -690,24 +719,23 @@
                                 (gain state side :credit 1)))}]}
 
    "Self-modifying Code"
-   {:abilities  [{:req (req (not (install-locked? state side)))
-                  :effect (req (when-completed (trash state side card {:cause :ability-cost})
-                                               (continue-ability state side
-                                                                  {:prompt "Choose a program to install"
-                                                                   :msg (req (if (not= target "No install")
-                                                                               (str "install " (:title target))
-                                                                               (str "shuffle their Stack")))
-                                                                   :priority true
-                                                                   :choices (req (cancellable
-                                                                                   (conj (vec (sort-by :title (filter #(is-type? % "Program")
-                                                                                                                      (:deck runner))))
-                                                                                         "No install")))
-                                                                   :cost [:credit 2]
-                                                                   :effect (req (trigger-event state side :searched-stack nil)
-                                                                                (trash state side card {:cause :ability-cost})
-                                                                                (shuffle! state side :deck)
-                                                                                (when (not= target "No install")
-                                                                                  (runner-install state side target)))} card nil)))}]}
+   {:abilities [{:req (req (not (install-locked? state side)))
+                 :effect (req (when-completed (trash state side card {:cause :ability-cost})
+                                              (continue-ability state side
+                                                {:prompt "Choose a program to install"
+                                                 :msg (req (if (not= target "No install")
+                                                             (str "install " (:title target))
+                                                             (str "shuffle their Stack")))
+                                                 :priority true
+                                                 :choices (req (cancellable
+                                                                 (conj (vec (sort-by :title (filter #(is-type? % "Program")
+                                                                                                    (:deck runner))))
+                                                                       "No install")))
+                                                 :cost [:credit 2]
+                                                 :effect (req (trigger-event state side :searched-stack nil)
+                                                              (shuffle! state side :deck)
+                                                              (when (not= target "No install")
+                                                                (runner-install state side target)))} card nil)))}]}
 
    "Sneakdoor Beta"
    {:abilities [{:cost [:click 1]
