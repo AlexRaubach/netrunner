@@ -260,6 +260,59 @@
       (core/rez state :corp (refresh jesus))
       (is (core/rezzed? (refresh jesus)) "Jackson Howard can be rezzed next turn"))))
 
+(deftest counter-surveillance
+  ;; Trash to run, on successful run access cards equal to Tags and pay that amount in credits
+  (do-game
+    (new-game (default-corp [(qty "Hedge Fund" 3)])
+              (default-runner [(qty "Counter Surveillance" 1)]))
+    (take-credits state :corp)
+    (core/gain state :runner :tag 2)
+    (play-from-hand state :runner "Counter Surveillance")
+    (-> @state :runner :credit (= 4) (is "Runner has 4 credits"))
+    (let [cs (get-in @state [:runner :rig :resource 0])]
+      (card-ability state :runner cs 0)
+      (prompt-choice :runner "HQ")
+      (run-successful state)
+      (-> (get-runner) :register :successful-run (= [:hq]) is)
+      (prompt-choice :runner "Card from hand")
+      (-> (get-runner) :prompt first :msg (= "You accessed Hedge Fund") is)
+      (prompt-choice :runner "OK")
+      (prompt-choice :runner "Card from hand")
+      (-> (get-runner) :prompt first :msg (= "You accessed Hedge Fund") is)
+      (prompt-choice :runner "OK")
+      (-> @state :runner :discard count (= 1) (is "Counter Surveillance trashed"))
+      (-> @state :runner :credit (= 2) (is "Runner has 2 credits")))))
+
+(deftest counter-surveillance-obelus
+  ;; Test Obelus does not trigger before Counter Surveillance accesses are done. Issues #2675
+  (do-game
+    (new-game (default-corp [(qty "Hedge Fund" 3)])
+              (default-runner [(qty "Counter Surveillance" 1) (qty "Obelus" 1) (qty "Sure Gamble" 3)]))
+    (starting-hand state :runner ["Counter Surveillance" "Obelus"])
+    (take-credits state :corp)
+    (core/gain state :runner :tag 2)
+    (core/gain state :runner :credit 2)
+    (-> (get-runner) :credit (= 7) (is "Runner has 7 credits"))
+    (play-from-hand state :runner "Counter Surveillance")
+    (play-from-hand state :runner "Obelus")
+    (-> (get-runner) :credit (= 2) (is "Runner has 2 credits")) ; Runner has enough credits to pay for CS
+    (let [cs (get-in @state [:runner :rig :resource 0])]
+      (card-ability state :runner cs 0)
+      (prompt-choice :runner "HQ")
+      (run-successful state)
+      (-> (get-runner) :register :successful-run (= [:hq]) is)
+      (-> (get-runner) :hand count zero? (is "Runner did not draw cards from Obelus yet"))
+      (prompt-choice :runner "Card from hand")
+      (-> (get-runner) :prompt first :msg (= "You accessed Hedge Fund") is)
+      (-> (get-runner) :hand count zero? (is "Runner did not draw cards from Obelus yet"))
+      (prompt-choice :runner "OK")
+      (prompt-choice :runner "Card from hand")
+      (-> (get-runner) :prompt first :msg (= "You accessed Hedge Fund") is)
+      (prompt-choice :runner "OK")
+      (-> (get-runner) :hand count (= 2) (is "Runner did draw cards from Obelus after all accesses are done"))
+      (-> (get-runner) :discard count (= 1) (is "Counter Surveillance trashed"))
+      (-> (get-runner) :credit (= 0) (is "Runner has no credits")))))
+
 (deftest-pending councilman-zone-change
   ;; Rezz no longer prevented when card changes zone (issues #1571)
   (do-game
@@ -403,6 +456,19 @@
     (is (= 3 (count (:hand (get-corp)))) "Corp drew 2 cards")
     (is (= 1 (count (:discard (get-runner)))) "Eden Shard trashed")))
 
+(deftest eden-shard-no-install-on-access
+  ;; Eden Shard - Do not install when accessing cards
+  (do-game
+    (new-game (default-corp)
+              (default-runner [(qty "Eden Shard" 1)]))
+    (starting-hand state :corp ["Hedge Fund"])
+    (take-credits state :corp)
+    (is (= 1 (count (:hand (get-corp)))))
+    (run-empty-server state :rd)
+    (play-from-hand state :runner "Eden Shard")
+    (is (not (get-resource state 0)) "Eden Shard not installed")
+    (is (= 1 (count (:hand (get-runner)))) "Eden Shard not installed")))
+
 (deftest fan-site
   ;; Fan Site - Add to score area as 0 points when Corp scores an agenda
   (do-game
@@ -440,6 +506,26 @@
     (play-from-hand state :corp "Hostile Takeover" "New remote")
     (score-agenda state :corp (get-content state :remote2 0))
     (is (find-card "Fan Site" (:scored (get-corp))) "Fan Site not removed from Corp score area")))
+
+(deftest fan-site-forfeit
+  ;; Fan Site - Runner can forfeit Fan Site
+  (do-game
+    (new-game (default-corp [(qty "Hostile Takeover" 1)])
+              (default-runner [(qty "Fan Site" 1) (qty "Data Dealer" 1)]))
+    (take-credits state :corp)
+    (play-from-hand state :runner "Fan Site")
+    (take-credits state :runner)
+    (play-from-hand state :corp "Hostile Takeover" "New remote")
+    (score-agenda state :corp (get-content state :remote1 0))
+    (is (= 0 (:agenda-point (get-runner))))
+    (is (= 1 (count (:scored (get-runner)))) "Fan Site added to Runner score area")
+    (take-credits state :corp)
+    (play-from-hand state :runner "Data Dealer")
+    (let [credits (:credit (get-runner))]
+      (card-ability state :runner (get-resource state 0) 0)
+      (prompt-select :runner (get-scored state :runner 0))
+      (is (= 0 (count (:scored (get-runner)))) "Fan Site successfully forfeit to Data Dealer")
+      (is (= (+ credits 9) (:credit (get-runner))) "Gained 9 credits from Data Dealer"))))
 
 (deftest fester
   ;; Fester - Corp loses 2c (if able) when purging viruses
@@ -692,8 +778,12 @@
     (play-from-hand state :runner "Joshua B.")
     (take-credits state :runner)
     (take-credits state :corp)
-    (prompt-choice :runner "Yes") ; gain the extra click
-    (is (= 5 (:click (get-runner))) "Gained extra click")
+    (is (= 0 (:click (get-runner))) "Runner has 0 clicks")
+    (is (:runner-phase-12 @state) "Runner is in Step 1.2")
+    (card-ability state :runner (get-in @state [:runner :rig :resource 0]) 0)
+    (is (= 1 (:click (get-runner))) "Gained extra click from Joshua")
+    (core/end-phase-12 state :runner nil)
+    (is (= 5 (:click (get-runner))) "Gained normal clicks as well")
     (take-credits state :runner)
     (is (= 1 (:tag (get-runner))) "Took 1 tag")))
 
@@ -1790,15 +1880,21 @@
       (is (= 0 (get-counters (refresh vbg) :virus)) "Virus Breeding Ground lost 1 counter"))))
 
 (deftest wasteland
-  ;; Wasteland - Gain 1c the first time you trash an installed card each turn
+  ;; Wasteland - Gain 1c the first time you trash an installed card of yours each turn
   (do-game
-    (new-game (default-corp)
+    (new-game (default-corp [(qty "PAD Campaign" 1)])
               (default-runner [(qty "Wasteland" 1) (qty "Faust" 1) (qty "Fall Guy" 4)]))
+    (play-from-hand state :corp "PAD Campaign" "New remote")
     (take-credits state :corp)
-    (core/gain state :runner :click 1)
+    (core/gain state :runner :click 2)
+    (core/gain state :runner :credit 4)
     (core/draw state :runner)
     (play-from-hand state :runner "Faust")
     (play-from-hand state :runner "Wasteland")
+    (is (= 4 (:credit (get-runner))) "Runner has 4 credits")
+    (run-empty-server state "Server 1")
+    (prompt-choice :runner "Yes") ; Trash PAD campaign
+    (is (= 0 (:credit (get-runner))) "Gained nothing from Wasteland on corp trash")
     ; trash from hand first which should not trigger #2291
     (let [faust (get-in @state [:runner :rig :program 0])]
       (card-ability state :runner faust 1)
