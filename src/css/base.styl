@@ -260,6 +260,18 @@ span.small
     box-shadow(none)
     border-color: orange
 
+.rotated
+  color: white
+  background-color: grey
+  border-color: orangered
+  opacity: 0.5
+  box-shadow(none)
+  cursor: auto
+
+  &:hover, &:focus
+    box-shadow(none)
+    border-color: orange
+
 .label
   border: 1px solid white
   border-radius: 4px
@@ -505,7 +517,7 @@ nav ul
 .win-right
   position: absolute
   top: 0px
-  right: -2px
+  right: -8px
   border-radius: 0px
   padding: 0
   font-size: 12px
@@ -778,6 +790,13 @@ nav ul
   .pack
     font-style: italic
 
+  .selected-alt
+    font-style: italic
+    color: orange
+
+  .alt-art-selector
+    margin-top: 10px
+
 .filters
   flex(0 0 180px)
   margin: 10px
@@ -792,6 +811,7 @@ nav ul
 
   .hide-rotated-div
     margin-top: 10px
+    margin-bottom: 20px
 
   h4
     margin-top: 5px
@@ -851,9 +871,15 @@ nav ul
   position: relative
   height: 348px
   width: 250px
-  margin: 0 10px 10px 0
+  margin: 0 10px 10px 2px
   border-radius: 8px
   padding: 10px
+
+  &.selected
+    box-shadow(0 0 1px 2px limegreen)
+
+  &.selected-alt
+    box-shadow(0 0 1px 2px orange)
 
   > h4
     margin-bottom: 5px
@@ -1924,6 +1950,9 @@ nav ul
   overflow: auto
   margin-top: -31px
 
+  section
+    margin-bottom: 20px
+
   .flash-message
     color: lawngreen
     margin-left: 16px
@@ -1956,6 +1985,8 @@ nav ul
       width: 150px
       margin-top: 5px
 
+    .reset-all
+      margin-top: 10px
 
 @keyframes highlight
   from

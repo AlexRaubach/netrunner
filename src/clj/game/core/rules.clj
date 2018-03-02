@@ -57,7 +57,8 @@
                        (trash state side current)))
                    (let [c (some #(when (= (:cid %) (:cid card)) %) (get-in @state [side :play-area]))
                          moved-card (move state side c :current)]
-                     (card-init state side eid moved-card true)))
+                     (card-init state side eid moved-card {:resolve-effect true
+                                                           :init-data true})))
                (do (resolve-ability state side (assoc cdef :eid eid) card nil)
                    (when-let [c (some #(when (= (:cid %) (:cid card)) %) (get-in @state [side :play-area]))]
                      (move state side c :discard))
@@ -306,14 +307,16 @@
 
 (defn- resolve-trash-end
   [state side eid {:keys [zone type disabled] :as card}
-   {:keys [unpreventable cause keep-server-alive suppress-event] :as args} & targets]
+   {:keys [unpreventable cause keep-server-alive suppress-event host-trashed] :as args} & targets]
   (let [cdef (card-def card)
-        moved-card (move state (to-keyword (:side card)) card :discard {:keep-server-alive keep-server-alive})]
+        moved-card (move state (to-keyword (:side card)) card :discard {:keep-server-alive keep-server-alive})
+        card-prompts (filter #(= (get-in % [:card :title]) (get moved-card :title)) (get-in @state [side :prompt]))]
+
     (when-let [trash-effect (:trash-effect cdef)]
       (when (and (not disabled) (or (and (= (:side card) "Runner")
                                          (:installed card))
-                                    (:rezzed card)
-                                    (:when-inactive trash-effect)))
+                                    (and (:rezzed card) (not host-trashed))
+                                    (and (:when-inactive trash-effect) (not host-trashed))))
         (resolve-ability state side trash-effect moved-card (cons cause targets))))
     (swap! state update-in [:per-turn] dissoc (:cid moved-card))
     (effect-completed state side eid)))
@@ -455,13 +458,11 @@
      (trash state side
             (update-in h [:zone] #(map to-keyword %))
             {:unpreventable true :suppress-event true}))
-   (let [card (get-card state card)
-         c (if (in-corp-scored? state side card)
-             (deactivate state side card) card)]
-     (system-msg state side (str "forfeits " (:title c)))
-     (gain-agenda-point state side (- (get-agenda-points state side c)))
-     (move state side c :rfg)
-     (when-completed (trigger-event-sync state side (keyword (str (name side) "-forfeit-agenda")) c)
+   (let [card (get-card state card)]
+     (system-msg state side (str "forfeits " (:title card)))
+     (gain-agenda-point state side (- (get-agenda-points state side card)))
+     (move state side card :rfg)
+     (when-completed (trigger-event-sync state side (keyword (str (name side) "-forfeit-agenda")) card)
                      (effect-completed state side eid)))))
 
 (defn gain-agenda-point

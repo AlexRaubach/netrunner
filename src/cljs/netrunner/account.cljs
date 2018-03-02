@@ -7,14 +7,15 @@
             [goog.dom :as gdom]
             [netrunner.auth :refer [authenticated avatar] :as auth]
             [netrunner.appstate :refer [app-state]]
-            [netrunner.ajax :refer [POST GET]]))
+            [netrunner.ajax :refer [POST GET PUT]]
+            [jinteki.cards :refer [all-cards]]))
 
 (def alt-arts-channel (chan))
 (defn load-alt-arts []
-  (go (let [alt_info (->> (<! (GET "/data/altarts"))
+  (go (let [alt_info (->> (<! (GET "/data/cards/altarts"))
                        (:json)
                        (map #(select-keys % [:version :name])))
-            cards (->> (:cards @app-state)
+            cards (->> @all-cards
                     (filter #(not (:replaced_by %)))
                     (map #(select-keys % [:title :setname :code :alt_art :replaces :replaced_by]))
                     ;(map #(let [replaces (:replaces %)
@@ -33,16 +34,27 @@
         version-path (get (:alt_art card) (keyword version) card-code)]
     (str "/img/cards/" version-path ".png")))
 
-(defn all-alt-art-types
+(defn- all-alt-art-types
   []
-  (conj
-    (map :version (:alt-info @app-state))
-    "default"))
+  (map :version (:alt-info @app-state)))
 
 (defn alt-art-name
   [version]
   (let [alt (first (filter #(= (name version) (:version %)) (:alt-info @app-state)))]
     (get alt :name "Official")))
+
+(defn post-response [owner response]
+  (if (= (:status response) 200)
+    (om/set-state! owner :flash-message "Profile updated - Please refresh your browser")
+    (case (:status response)
+      401 (om/set-state! owner :flash-message "Invalid login or password")
+      404 (om/set-state! owner :flash-message "No account with that email address exists")
+      :else (om/set-state! owner :flash-message "Profile updated - Please refresh your browser"))))
+
+(defn post-options [url callback]
+  (let [params (:options @app-state)]
+    (go (let [response (<! (PUT url params :json))]
+          (callback response)))))
 
 (defn handle-post [event owner url ref]
   (.preventDefault event)
@@ -57,15 +69,7 @@
   (swap! app-state assoc-in [:options :deckstats] (om/get-state owner :deckstats))
   (.setItem js/localStorage "sounds" (om/get-state owner :sounds))
   (.setItem js/localStorage "sounds_volume" (om/get-state owner :volume))
-
-  (let [params (:options @app-state)]
-    (go (let [response (<! (POST url params :json))]
-          (if (= (:status response) 200)
-            (om/set-state! owner :flash-message "Profile updated - Please refresh your browser")
-            (case (:status response)
-              401 (om/set-state! owner :flash-message "Invalid login or password")
-              421 (om/set-state! owner :flash-message "No account with that email address exists")
-              :else (om/set-state! owner :flash-message "Profile updated - Please refresh your browser")))))))
+  (post-options url (partial post-response owner)))
 
 (defn add-user-to-block-list
   [owner user]
@@ -94,30 +98,47 @@
   (om/set-state! owner :alt-card-version
                  (get (om/get-state owner :alt-arts) (keyword value) "default")))
 
+(defn- remove-card-art
+  [owner card]
+  (om/update-state! owner [:alt-arts] #(dissoc % (keyword (:code card))))
+  (when-let [replaces (:replaces card)]
+    (let [replaced-card (some #(when (= replaces (:code %)) %) (:cards @app-state))]
+      (when replaced-card
+        (remove-card-art owner replaced-card)))))
+
+(defn- add-card-art
+  [owner card art]
+  (om/update-state! owner [:alt-arts] #(assoc % (keyword (:code card)) art))
+  (when-let [replaces (:replaces card)]
+    (let [replaced-card (some #(when (= replaces (:code %)) %) (:cards @app-state))]
+      (when replaced-card
+        (add-card-art owner replaced-card art)))))
+
+(defn- update-card-art
+  "Set the alt art for a card and any card it replaces (recursively)"
+  [owner card art]
+  (when (and card (string? art))
+    (if (= "default" art)
+      (remove-card-art owner card)
+      (let [versions (keys (:alt_art card))]
+        (when (some #(= % (keyword art)) versions)
+          (add-card-art owner card art))))))
+
 (defn set-card-art
   [owner value]
   (om/set-state! owner :alt-card-version value)
-
   (let [code (om/get-state owner :alt-card)
-        card (some #(when (= code (:code %)) %) (:cards @app-state))]
-    (om/update-state! owner [:alt-arts]
-                      (fn [m]
-                        (if-let [replaces (:replaces card)]
-                          (assoc m (keyword code) value
-                                   (keyword replaces) value)
-                          (assoc m (keyword code) value))))))
+        card (some #(when (= code (:code %)) %) @all-cards)]
+    (update-card-art owner card value)))
 
 (defn reset-card-art
-  [owner]
-  (om/set-state! owner :alt-arts {})
-  (let [select-node (om/get-node owner "all-art-select")
-        selected (keyword (.-value select-node))]
-    (when (not= :default selected)
-      (doseq [card (vals (:alt-arts @app-state))]
-        (let [versions (keys (:alt_art card))]
-          (when (some (fn [i] (= i (keyword selected))) versions)
-            (om/update-state! owner [:alt-arts]
-                              (fn [m] (assoc m (keyword (:code card)) (name selected))))))))))
+  ([owner]
+   (let [select-node (om/get-node owner "all-art-select")
+         art (.-value select-node)]
+     (reset-card-art owner art)))
+  ([owner art]
+   (doseq [card (vals (:alt-arts @app-state))]
+     (update-card-art owner card art))))
 
 (defn account-view [user owner]
   (reify
@@ -147,7 +168,7 @@
         [:div.account
          [:div.panel.blue-shade.content-page#profile-form {:ref "profile-form"}
           [:h2 "Settings"]
-          [:form {:on-submit #(handle-post % owner "/update-profile" "profile-form")}
+          [:form {:on-submit #(handle-post % owner "/profile" "profile-form")}
            [:section
             [:h3 "Avatar"]
             (om/build avatar user {:opts {:size 38}})
@@ -231,7 +252,9 @@
 
                [:div {:class "alt-art-group"}
                 (for [version (conj (keys (get-in (:alt-arts @app-state) [(om/get-state owner :alt-card) :alt_art])) :default)]
-                  (let [url (image-url (om/get-state owner :alt-card) version)]
+                  (let [curr-alt (om/get-state owner :alt-card)
+                        url (image-url curr-alt version)
+                        alt (get (:alt-arts @app-state) curr-alt)]
                     [:div
                      [:div
                       [:div [:label [:input {:type "radio"
@@ -243,11 +266,12 @@
                      [:div
                       [:img {:class "alt-art-select"
                              :src url
+                             :alt (str (:title alt) " (" (alt-art-name version) ")")
                              :on-click #(set-card-art owner (name version))
                              :onError #(-> % .-target js/$ .hide)
                              :onLoad #(-> % .-target js/$ .show)}]]]))]
                [:div {:id "set-all"}
-                "Reset all cards to: "
+                "Set all cards to: "
                 [:select {:ref "all-art-select"}
                  (for [t (all-alt-art-types)]
                    [:option {:value t} (alt-art-name t)])]
@@ -256,18 +280,26 @@
                   :on-click #(do
                                (reset-card-art owner)
                                (select-card owner (om/get-state owner :alt-card)))}
-                 "Reset"]]])]
+                 "Set"]]
+               [:div.reset-all
+                [:button
+                 {:type "button"
+                  :on-click #(do
+                               (reset-card-art owner "default")
+                               (select-card owner (om/get-state owner :alt-card)))}
+                 "Reset All to Official Art"]]
+               ])]
 
            [:section
             [:h3 "Blocked users"]
             [:div
-             [:input.search {:on-key-down (fn [e]
-                                            (when (= e.keyCode 13)
-                                              (do
-                                                (add-user-to-block-list owner user)
-                                                (.preventDefault e))))
-                             :ref "block-user-input"
-                             :type "text" :placeholder "User name"}]
+             [:input {:on-key-down (fn [e]
+                                     (when (= e.keyCode 13)
+                                       (do
+                                         (add-user-to-block-list owner user)
+                                         (.preventDefault e))))
+                      :ref "block-user-input"
+                      :type "text" :placeholder "User name"}]
              [:button.block-user-btn {:type "button"
                                       :name "block-user-button"
                                       :on-click #(add-user-to-block-list owner user)}
